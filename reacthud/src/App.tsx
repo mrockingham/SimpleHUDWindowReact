@@ -11,6 +11,7 @@ import { Controls } from "./components/Controls";
 import { StatusScreen } from "./components/StatusScreen";
 import { DestinationForm } from "./components/DestinationForm";
 import { SettingsModal } from "./components/SettingsModal";
+import { useWakeLock } from "./hooks/useWakeLock";
 
 import {
   getDistance,
@@ -33,6 +34,8 @@ const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(
     AppState.DESTINATION_SELECT
   );
+
+  useWakeLock(appState === AppState.NAVIGATING);
   const [instructions, setInstructions] = useState<Instruction[]>([]);
   const [instructionIndex, setInstructionIndex] = useState(0);
   const [apiError, setApiError] = useState<string | null>(null);
