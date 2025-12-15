@@ -30,39 +30,99 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="absolute inset-0 bg-black/80 flex items-center justify-center backdrop-blur-md z-50">
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.8)",
+        backdropFilter: "blur(12px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 50,
+      }}
+    >
       <div
-        className={`p-6 bg-gray-900/80 rounded-lg border border-gray-700 w-full max-w-sm text-white transform ${
-          isHudMode ? "scale-x-[-1]" : ""
-        }`}
+        style={{
+          width: "100%",
+          maxWidth: "24rem",
+          backgroundColor: "rgba(17, 24, 39, 0.9)", // Gray-900
+          border: "1px solid #374151",
+          borderRadius: "1rem",
+          padding: "1.5rem",
+          color: "white",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+          // Apply the mirror flip if HUD mode is on
+          transform: isHudMode ? "scaleX(-1)" : "none",
+        }}
       >
-        <h2 className="text-2xl font-bold mb-6 text-center">Settings</h2>
+        <h2
+          style={{
+            fontSize: "1.5rem",
+            fontWeight: "bold",
+            marginBottom: "1.5rem",
+            textAlign: "center",
+          }}
+        >
+          Settings
+        </h2>
 
         {/* Color Selection */}
-        <div className="mb-6">
-          <label className="block text-lg font-semibold mb-3 text-gray-300">
+        <div style={{ marginBottom: "1.5rem" }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: "1.125rem",
+              fontWeight: 600,
+              marginBottom: "0.75rem",
+              color: "#d1d5db",
+            }}
+          >
             HUD Color
           </label>
-          <div className="flex justify-between">
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "0.5rem",
+            }}
+          >
             {COLORS.map((c) => (
               <button
                 key={c}
                 onClick={() => onColorChange(c)}
-                className={`w-12 h-12 rounded-full transition-transform transform hover:scale-110 ${
-                  color === c ? "ring-2 ring-offset-2 ring-offset-gray-900" : ""
-                }`}
-                style={{ backgroundColor: c, ringColor: c }}
                 aria-label={`Select color ${c}`}
+                style={{
+                  width: "3rem",
+                  height: "3rem",
+                  borderRadius: "9999px",
+                  backgroundColor: c,
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "transform 0.2s",
+                  // This creates the "Ring" effect using Box Shadow instead of Tailwind classes
+                  boxShadow:
+                    color === c
+                      ? `0 0 0 2px #111827, 0 0 0 4px ${c}` // The gap (#111827) then the ring (color)
+                      : "none",
+                  transform: color === c ? "scale(1.1)" : "scale(1)",
+                }}
               />
             ))}
           </div>
         </div>
 
         {/* Size Adjustment */}
-        <div className="mb-8">
+        <div style={{ marginBottom: "2rem" }}>
           <label
             htmlFor="size-slider"
-            className="block text-lg font-semibold mb-3 text-gray-300"
+            style={{
+              display: "block",
+              fontSize: "1.125rem",
+              fontWeight: 600,
+              marginBottom: "0.75rem",
+              color: "#d1d5db",
+            }}
           >
             Text Size
           </label>
@@ -74,10 +134,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             step="0.05"
             value={size}
             onChange={(e) => onSizeChange(parseFloat(e.target.value))}
-            className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-            style={{ accentColor: color }}
+            style={{
+              width: "100%",
+              height: "0.5rem",
+              borderRadius: "0.5rem",
+              appearance: "none",
+              backgroundColor: "#374151",
+              cursor: "pointer",
+              accentColor: color, // Uses the selected HUD color for the slider thumb
+            }}
           />
-          <div className="flex justify-between text-xs text-gray-400 mt-2">
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: "0.5rem",
+              fontSize: "0.75rem",
+              color: "#9ca3af",
+            }}
+          >
             <span>Smaller</span>
             <span>Larger</span>
           </div>
@@ -85,7 +160,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <button
           onClick={onClose}
-          className="w-full mt-4 px-6 py-3 text-xl font-semibold bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors"
+          style={{
+            width: "100%",
+            padding: "0.75rem",
+            fontSize: "1.125rem",
+            fontWeight: 600,
+            backgroundColor: "#374151",
+            color: "white",
+            border: "none",
+            borderRadius: "0.5rem",
+            cursor: "pointer",
+            transition: "background-color 0.2s",
+          }}
+          onMouseOver={(e) =>
+            (e.currentTarget.style.backgroundColor = "#4b5563")
+          }
+          onMouseOut={(e) =>
+            (e.currentTarget.style.backgroundColor = "#374151")
+          }
         >
           Close
         </button>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { GeolocationStatus, type GeolocationData } from "../types";
+import { GeolocationStatus } from "../types";
 
 export const useGeolocation = () => {
   const [status, setStatus] = useState<any>(GeolocationStatus.PENDING);

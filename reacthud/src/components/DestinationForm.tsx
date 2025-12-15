@@ -22,6 +22,8 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
   const [isFetching, setIsFetching] = useState(false);
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
+  console.log("isFecthing", isFetching);
+
   const staticMapUrl = coords
     ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${coords.longitude},${coords.latitude},14,0,0/1280x1280?access_token=${MAPBOX_TOKEN}`
     : "";
