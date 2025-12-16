@@ -16,7 +16,7 @@ const BuildingBlock: React.FC<{
   width: number;
   height: number;
   delay: number; // Animation delay to scatter them
-}> = ({ x, z, width, height, delay }) => {
+}> = ({ x, z, width, height }) => {
   return (
     <div
       style={{
