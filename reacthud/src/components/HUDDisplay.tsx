@@ -8,10 +8,160 @@ interface HUDDisplayProps {
   distanceToTurn: string;
 }
 
+// --- 3D Building Component ---
+// This creates a wireframe cube using CSS 3D transforms
+const BuildingBlock: React.FC<{
+  x: string; // Left/Right position
+  z: number; // Depth position
+  width: number;
+  height: number;
+  delay: number; // Animation delay to scatter them
+}> = ({ x, z, width, height, delay }) => {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        bottom: `${z}px`,
+        width: `${width}px`,
+        height: `${height}px`,
+        transformStyle: "preserve-3d",
+        transform: "rotateX(-90deg) translateZ(0)", // Stand the building up
+        transformOrigin: "bottom",
+      }}
+    >
+      {/* Front Face */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          border: "1px solid var(--hud-color)",
+          backgroundColor: "rgba(0,0,0,0.5)",
+          boxShadow: "0 0 5px var(--hud-color)",
+          opacity: 0.6,
+          transform: `translateZ(${width / 2}px)`,
+        }}
+      />
+      {/* Top Face (Roof) */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: `${width}px`, // Top is square-ish
+          border: "1px solid var(--hud-color)",
+          backgroundColor: "rgba(0,0,0,0.8)",
+          transformOrigin: "top",
+          transform: "rotateX(-90deg)",
+        }}
+      />
+      {/* Side Face (Outer) */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: `${width}px`,
+          height: "100%",
+          border: "1px solid var(--hud-color)",
+          backgroundColor: "rgba(0,0,0,0.5)",
+          transformOrigin: "left",
+          transform: "rotateY(-90deg)",
+        }}
+      />
+    </div>
+  );
+};
+
+// --- The City Generation Layer ---
+const RetroCity: React.FC<{ speed: number }> = ({ speed }) => {
+  // Determine animation duration based on speed
+  // Faster speed = Lower duration (faster animation)
+  // If stopped (0), we set a super slow crawl just for effect
+  const duration = speed > 0 ? Math.max(1, 100 / speed) : 20;
+
+  // Generate some static "random" buildings so they don't flicker on re-render
+  // We use useMemo so they calculate once
+  const leftBuildings = useMemo(() => {
+    return Array.from({ length: 8 }).map((_, i) => ({
+      z: i * 200, // Space them out every 200px
+      width: 40 + Math.random() * 40,
+      height: 60 + Math.random() * 120,
+    }));
+  }, []);
+
+  const rightBuildings = useMemo(() => {
+    return Array.from({ length: 8 }).map((_, i) => ({
+      z: i * 200 + 100, // Offset slightly from left side
+      width: 40 + Math.random() * 40,
+      height: 60 + Math.random() * 120,
+    }));
+  }, []);
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        transformStyle: "preserve-3d",
+      }}
+    >
+      {/* Container that moves towards the camera */}
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          transformStyle: "preserve-3d",
+          animation: `moveCity ${duration}s linear infinite`,
+        }}
+      >
+        {/* LEFT SIDE BUILDINGS */}
+        {leftBuildings.map((b, i) => (
+          <BuildingBlock
+            key={`l-${i}`}
+            x="5%" // Position on left edge of road
+            z={b.z}
+            width={b.width}
+            height={b.height}
+            delay={0}
+          />
+        ))}
+
+        {/* RIGHT SIDE BUILDINGS */}
+        {rightBuildings.map((b, i) => (
+          <BuildingBlock
+            key={`r-${i}`}
+            x="85%" // Position on right edge of road
+            z={b.z}
+            width={b.width}
+            height={b.height}
+            delay={0}
+          />
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes moveCity {
+          0% { transform: translateY(0); }
+          100% { transform: translateY(200px); } /* Move one 'grid unit' forward */
+        }
+      `}</style>
+    </div>
+  );
+};
+
 // --- The Cool 3D Road Component ---
 const RetroRoad: React.FC<{
   turnDirection: "straight" | "left" | "right" | "slight-left" | "slight-right";
-}> = ({ turnDirection }) => {
+  speed: number;
+}> = ({ turnDirection, speed }) => {
   const OFFSET = 25;
 
   const getPaths = () => {
@@ -64,16 +214,14 @@ const RetroRoad: React.FC<{
     <div
       style={{
         position: "absolute",
-        // CHANGED: We push the road down to the bottom 55% of the screen
-        // This leaves the top empty for the Arrow to float in pure black
-        top: "0%",
+        top: "0%", // Started higher to accommodate buildings
         left: 0,
         width: "100%",
-        height: "55%",
+        height: "55%", // Lower half of screen
         overflow: "hidden",
         pointerEvents: "none",
         zIndex: 0,
-        perspective: "600px",
+        perspective: "600px", // Essential for 3D effect
       }}
     >
       <div
@@ -83,10 +231,16 @@ const RetroRoad: React.FC<{
           left: "-50%",
           width: "200%",
           height: "100%",
-          transform: "rotateX(60deg) translateY(20%)",
+          transformStyle: "preserve-3d", // Allow children to be 3D
+          transform: "rotateX(60deg) translateY(20%)", // Tilt the floor
           transformOrigin: "bottom",
         }}
       >
+        {/* 1. The City Layer (Buildings) */}
+        {/* We place this BEFORE the fog so they fade out properly */}
+        <RetroCity speed={speed} />
+
+        {/* 2. The Road Surface */}
         <div
           style={{
             position: "absolute",
@@ -95,9 +249,10 @@ const RetroRoad: React.FC<{
             width: "100%",
             height: "100%",
             opacity: 0.5,
+            transformStyle: "preserve-3d",
           }}
         >
-          {/* Vertical Lane Dividers ONLY (Removed Horizontal Bars) */}
+          {/* Vertical Lane Dividers */}
           <div
             style={{
               position: "absolute",
@@ -111,7 +266,6 @@ const RetroRoad: React.FC<{
               opacity: 0.4,
             }}
           >
-            {/* The Lane Lines */}
             <div
               style={{
                 width: "2px",
@@ -135,20 +289,22 @@ const RetroRoad: React.FC<{
             />
           </div>
 
-          {/* Gradient to fade the road out at the horizon */}
+          {/* Horizon Fade (Fog) */}
           <div
             style={{
               position: "absolute",
               top: 0,
               left: 0,
               width: "100%",
-              height: "50%",
-              background: "linear-gradient(to bottom, black, transparent)",
+              height: "60%", // Fade the top 60%
+              background:
+                "linear-gradient(to bottom, black 20%, transparent 100%)",
+              zIndex: 2, // Sit on top of buildings at the horizon
             }}
           />
         </div>
 
-        {/* The Curving Road Lines */}
+        {/* 3. The Curving Road Lines */}
         <svg
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
@@ -160,10 +316,10 @@ const RetroRoad: React.FC<{
             height: "120%",
             opacity: 1,
             filter: "drop-shadow(0 0 10px var(--hud-color))",
-            transform: "translateZ(2px)",
+            transform: "translateZ(2px)", // Lift off the floor
+            zIndex: 10,
           }}
         >
-          {/* Blurred Glow Lines */}
           <path
             d={leftPath}
             stroke="var(--hud-color)"
@@ -178,8 +334,6 @@ const RetroRoad: React.FC<{
             fill="none"
             style={{ filter: "blur(4px)" }}
           />
-
-          {/* Sharp White Center Lines */}
           <path d={leftPath} stroke="white" strokeWidth="1" fill="none" />
           <path d={rightPath} stroke="white" strokeWidth="1" fill="none" />
         </svg>
@@ -218,6 +372,8 @@ export const HUDDisplay: React.FC<HUDDisplayProps> = ({
     return "straight";
   }, [action]);
 
+  const numericSpeed = parseInt(speedDisplay) || 0;
+
   return (
     <div
       style={{
@@ -233,8 +389,8 @@ export const HUDDisplay: React.FC<HUDDisplayProps> = ({
         paddingBottom: "1rem",
       }}
     >
-      {/* 1. The Background Road Layer (Now positioned at bottom) */}
-      <RetroRoad turnDirection={turnDirection} />
+      {/* 1. The Background Road Layer */}
+      <RetroRoad turnDirection={turnDirection} speed={numericSpeed} />
 
       {/* 2. The Content Layer */}
 
@@ -271,21 +427,20 @@ export const HUDDisplay: React.FC<HUDDisplayProps> = ({
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "center",
-
           marginTop: "6rem",
         }}
       >
         <Icon
           style={{
-            ...whiteGlowStyle, // Using white glow for the arrow
-            width: "25vmin", // Responsive size
+            ...whiteGlowStyle,
+            width: "25vmin",
             height: "25vmin",
-            color: "white", // Force white color
+            color: "white",
           }}
         />
       </div>
 
-      {/* BOTTOM: Speed & Text (Sitting on the Road) */}
+      {/* BOTTOM: Speed & Text */}
       <div
         style={{
           position: "relative",
@@ -312,7 +467,7 @@ export const HUDDisplay: React.FC<HUDDisplayProps> = ({
               fontFamily: "monospace",
               fontWeight: "bold",
               lineHeight: 1,
-              fontSize: "15vmin", // Slightly smaller than distance
+              fontSize: "15vmin",
             }}
           >
             {speedDisplay}
@@ -332,7 +487,6 @@ export const HUDDisplay: React.FC<HUDDisplayProps> = ({
 
         <span
           style={{
-            // ...glowStyle,
             display: "block",
             textAlign: "center",
             backgroundColor: "rgba(0, 0, 0, 0.6)",
