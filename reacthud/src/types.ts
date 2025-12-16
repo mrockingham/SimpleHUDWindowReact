@@ -2,7 +2,6 @@ import React from "react";
 
 // --- REPLACE ENUMS WITH CONST OBJECTS ---
 
-// 1. AppState
 export const AppState = {
   DESTINATION_SELECT: "DESTINATION_SELECT",
   LOADING: "LOADING",
@@ -12,11 +11,9 @@ export const AppState = {
 
 export type AppState = (typeof AppState)[keyof typeof AppState];
 
-
-// 2. GeolocationStatus
 export const GeolocationStatus = {
   PENDING: "PENDING",
-  GRANTED: "GRANTED", // <--- CHANGED: This was "SUCCESS", now it matches your error
+  GRANTED: "GRANTED",
   DENIED: "DENIED",
   ERROR: "ERROR",
 } as const;
@@ -27,7 +24,6 @@ export type GeolocationStatus = (typeof GeolocationStatus)[keyof typeof Geolocat
 // --- INTERFACES ---
 
 export interface Instruction {
-  // We explicitly type the Icon component here
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   distance: number;
   action: string;
@@ -39,6 +35,8 @@ export interface MapboxSuggestion {
   text: string;
   place_name: string;
   center: [number, number];
+  // NEW: Add this line to fix the error 
+  place_type: string[]; 
 }
 
 export interface GeolocationData {

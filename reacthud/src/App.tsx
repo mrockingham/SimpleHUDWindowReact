@@ -6,12 +6,12 @@ import {
   type MapboxSuggestion,
 } from "./types";
 import { useGeolocation } from "./hooks/useGeolocation";
+import { useWakeLock } from "./hooks/useWakeLock"; // Ensure you created this file!
 import { HUDDisplay } from "./components/HUDDisplay";
 import { Controls } from "./components/Controls";
 import { StatusScreen } from "./components/StatusScreen";
 import { DestinationForm } from "./components/DestinationForm";
 import { SettingsModal } from "./components/SettingsModal";
-import { useWakeLock } from "./hooks/useWakeLock";
 
 import {
   getDistance,
@@ -19,10 +19,11 @@ import {
   formatDistance,
   M_S_TO_KMH,
   M_S_TO_MPH,
-  MANEUVER_THRESHOLD_METERS,
+  // We will override the constant inside the component for better control
 } from "./utils";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_APP_MAPBOX_ACCESS_TOKEN;
+const ARRIVAL_THRESHOLD = 60; // Increased from 30m to 60m to catch fast drivers
 
 const App: React.FC = () => {
   const {
@@ -34,8 +35,6 @@ const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(
     AppState.DESTINATION_SELECT
   );
-
-  useWakeLock(appState === AppState.NAVIGATING);
   const [instructions, setInstructions] = useState<Instruction[]>([]);
   const [instructionIndex, setInstructionIndex] = useState(0);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -46,6 +45,9 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hudColor, setHudColor] = useState("#06b6d4");
   const [hudSize, setHudSize] = useState(1);
+
+  // 1. Keep Screen On (Wake Lock)
+  useWakeLock(appState === AppState.NAVIGATING);
 
   // Load and apply settings
   useEffect(() => {
@@ -64,6 +66,66 @@ const App: React.FC = () => {
       hudSize.toString()
     );
   }, [hudColor, hudSize]);
+
+  // --- NAVIGATION LOGIC FIX ---
+  useEffect(() => {
+    // Only run if we are navigating and have GPS and Instructions
+    if (
+      appState !== AppState.NAVIGATING ||
+      !geoData.coords ||
+      instructions.length === 0
+    )
+      return;
+
+    const currentStep = instructions[instructionIndex];
+    if (!currentStep) return;
+
+    const userLoc = {
+      lat: geoData.coords.latitude,
+      lon: geoData.coords.longitude,
+    };
+    const stepLoc = {
+      lat: currentStep.location[1],
+      lon: currentStep.location[0],
+    };
+
+    const distToCurrent = getDistance(userLoc, stepLoc);
+
+    // 1. STANDARD ARRIVAL CHECK
+    // If we are within 60 meters of the turn, advance to next step.
+    if (distToCurrent < ARRIVAL_THRESHOLD) {
+      setInstructionIndex((prev) =>
+        Math.min(prev + 1, instructions.length - 1)
+      );
+      return;
+    }
+
+    // 2. FAILSAFE: "Did I miss the turn?"
+    // If we aren't at the last step, check the NEXT step too.
+    if (instructionIndex < instructions.length - 1) {
+      const nextStep = instructions[instructionIndex + 1];
+      const nextLoc = {
+        lat: nextStep.location[1],
+        lon: nextStep.location[0],
+      };
+      const distToNext = getDistance(userLoc, nextLoc);
+
+      // If we are significantly closer to the NEXT turn than the CURRENT turn,
+      // assume we passed the current one and the GPS didn't catch it.
+      // We also check 'distToNext < 1000' to make sure we don't skip ahead
+      // if the route loops back on itself miles away.
+      if (distToNext < distToCurrent && distToNext < 1000) {
+        // Double check: ensure we are at least 100m closer to next than current
+        // to prevent flickering when halfway between points.
+        if (distToCurrent - distToNext > 50) {
+          console.log("Auto-skipping to next step (Failsafe triggered)");
+          setInstructionIndex((prev) =>
+            Math.min(prev + 1, instructions.length - 1)
+          );
+        }
+      }
+    }
+  }, [geoData.coords, instructions, instructionIndex, appState]);
 
   const handleGetDirections = async (destination: MapboxSuggestion) => {
     setAppState(AppState.LOADING);
@@ -121,23 +183,10 @@ const App: React.FC = () => {
     setAppState(AppState.DESTINATION_SELECT);
   };
 
-  useEffect(() => {
-    if (
-      appState !== AppState.NAVIGATING ||
-      !geoData.coords ||
-      instructionIndex >= instructions.length - 1
-    )
-      return;
-
-    const nextManeuver = instructions[instructionIndex];
-    const distanceToNext = getDistance(
-      { lat: geoData.coords.latitude, lon: geoData.coords.longitude },
-      { lat: nextManeuver.location[1], lon: nextManeuver.location[0] }
-    );
-    if (distanceToNext < MANEUVER_THRESHOLD_METERS) {
-      setInstructionIndex((prev) => prev + 1);
-    }
-  }, [geoData.coords, instructions, instructionIndex, appState]);
+  // Manual Override: Allow user to skip step if stuck
+  const handleManualSkip = () => {
+    setInstructionIndex((prev) => Math.min(prev + 1, instructions.length - 1));
+  };
 
   const speedDisplay = useMemo(() => {
     if (geoData.speed === null) return "--";
@@ -251,6 +300,23 @@ const App: React.FC = () => {
               overflow: "hidden",
             }}
           >
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                transition: "transform 0.3s ease",
+                transform: isHudMode ? "scaleX(-1)" : "none",
+              }}
+              // ADDED: Click anywhere on HUD to force skip step (hidden feature for debugging)
+              onClick={handleManualSkip}
+            >
+              <HUDDisplay
+                speedDisplay={speedDisplay}
+                unit={isMph ? "mph" : "km/h"}
+                currentInstruction={currentInstruction}
+                distanceToTurn={distanceToTurn}
+              />
+            </div>
             <Controls
               isHudMode={isHudMode}
               isMph={isMph}
@@ -268,21 +334,6 @@ const App: React.FC = () => {
               onSizeChange={setHudSize}
               isHudMode={isHudMode}
             />
-            <div
-              style={{
-                width: "100%",
-                height: "90%",
-                transition: "transform 0.3s ease",
-                transform: isHudMode ? "scaleX(-1)" : "none",
-              }}
-            >
-              <HUDDisplay
-                speedDisplay={speedDisplay}
-                unit={isMph ? "mph" : "km/h"}
-                currentInstruction={currentInstruction}
-                distanceToTurn={distanceToTurn}
-              />
-            </div>
           </div>
         );
       default:

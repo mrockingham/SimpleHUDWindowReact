@@ -1,8 +1,47 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useDebounce } from "../hooks/useDebounce";
 import { type MapboxSuggestion, type GeolocationData } from "../types";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_APP_MAPBOX_ACCESS_TOKEN;
+
+// --- Helper Icons ---
+const PinIcon = () => (
+  <svg
+    className="w-5 h-5 text-gray-400"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+    />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+    />
+  </svg>
+);
+
+const StoreIcon = () => (
+  <svg
+    className="w-5 h-5 text-cyan-400"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m8-2a2 2 0 100-4 2 2 0 000 4zm-6 0a2 2 0 100-4 2 2 0 000 4h6"
+    />
+  </svg>
+);
 
 interface DestinationFormProps {
   isLoading: boolean;
@@ -22,7 +61,8 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
   const [isFetching, setIsFetching] = useState(false);
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-  console.log("isFecthing", isFetching);
+  // We need a session token for the Search Box API to group keystrokes
+  const sessionToken = useRef(crypto.randomUUID());
 
   const staticMapUrl = coords
     ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${coords.longitude},${coords.latitude},14,0,0/1280x1280?access_token=${MAPBOX_TOKEN}`
@@ -35,17 +75,37 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
         return;
       }
       setIsFetching(true);
+
       const proximity = coords
         ? `&proximity=${coords.longitude},${coords.latitude}`
         : "";
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+
+      // NEW API ENDPOINT: Search Box API (Suggest)
+      // This is much better at finding "Walmart" vs "Walmart Drive"
+      const url = `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(
         debouncedSearchTerm
-      )}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true${proximity}`;
+      )}&access_token=${MAPBOX_TOKEN}&session_token=${
+        sessionToken.current
+      }&types=brand,poi,address&limit=10${proximity}`;
 
       try {
         const response = await fetch(url);
         const data = await response.json();
-        setSuggestions(data.features || []);
+
+        // Map the new API response format to our existing MapboxSuggestion type
+        const mappedSuggestions: MapboxSuggestion[] = (
+          data.suggestions || []
+        ).map((s: any) => ({
+          id: s.mapbox_id, // Important: We store the mapbox_id here
+          text: s.name,
+          place_name: s.full_address || s.place_formatted,
+          // NOTE: The Suggest API does NOT return coordinates.
+          // We set a dummy [0,0] here and fetch the real ones in handleSelect
+          center: [0, 0],
+          place_type: [s.feature_type || "poi"],
+        }));
+
+        setSuggestions(mappedSuggestions);
       } catch (err) {
         console.error("Failed to fetch suggestions:", err);
         setSuggestions([]);
@@ -57,10 +117,40 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
     fetchSuggestions();
   }, [debouncedSearchTerm, coords]);
 
-  const handleSelect = (suggestion: MapboxSuggestion) => {
-    setSearchTerm(suggestion.place_name);
+  const handleSelect = async (suggestion: MapboxSuggestion) => {
+    setSearchTerm(suggestion.text);
     setSuggestions([]);
-    onSubmit(suggestion);
+    setIsFetching(true); // Show loading while we retrieve coords
+
+    try {
+      // STEP 2: RETRIEVE
+      // We have the ID, now we need the actual coordinates to navigate.
+      const retrieveUrl = `https://api.mapbox.com/search/searchbox/v1/retrieve/${suggestion.id}?access_token=${MAPBOX_TOKEN}&session_token=${sessionToken.current}`;
+
+      const res = await fetch(retrieveUrl);
+      const data = await res.json();
+
+      if (data.features && data.features.length > 0) {
+        const feature = data.features[0];
+        // Create the final object with REAL coordinates
+        const finalDestination: MapboxSuggestion = {
+          ...suggestion,
+          center: feature.geometry.coordinates, // [lon, lat]
+          place_name: feature.properties.full_address || suggestion.place_name,
+        };
+
+        // Reset session token for next search
+        sessionToken.current = crypto.randomUUID();
+
+        onSubmit(finalDestination);
+      }
+    } catch (err) {
+      console.error("Failed to retrieve details:", err);
+      // Fallback: Just try sending it anyway (though it might fail without coords)
+      onSubmit(suggestion);
+    } finally {
+      setIsFetching(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -85,7 +175,6 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
         overflow: "hidden",
       }}
     >
-      {/* CSS Styles for Form Elements */}
       <style>{`
         .hud-input:focus {
           outline: none;
@@ -93,13 +182,15 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
           border-color: var(--hud-color) !important;
         }
         .hud-button:hover:not(:disabled) {
-          background-color: #22d3ee !important; /* Cyan-400 */
+          background-color: #22d3ee !important; 
           transform: translateY(-1px);
         }
         .hud-suggestion-btn:hover {
-          background-color: var(--hud-color);
-          color: black;
+          background-color: rgba(6, 182, 212, 0.15); 
         }
+        .hud-list::-webkit-scrollbar { width: 8px; }
+        .hud-list::-webkit-scrollbar-track { background: #111827; }
+        .hud-list::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
       `}</style>
 
       {/* BACKGROUND MAP LAYER */}
@@ -162,6 +253,7 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
             letterSpacing: "0.05em",
             filter: "drop-shadow(0 0 15px var(--hud-color))",
             textShadow: "0 0 10px black",
+            textAlign: "center",
           }}
         >
           HUD Navigation
@@ -181,9 +273,9 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Where to?"
+            placeholder="Search (e.g. Walmart)..."
             className="hud-input"
-            disabled={isLoading}
+            disabled={isLoading || isFetching}
             style={{
               width: "100%",
               padding: "1rem 1.5rem",
@@ -200,6 +292,7 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
 
           {suggestions.length > 0 && (
             <ul
+              className="hud-list"
               style={{
                 position: "absolute",
                 top: "100%",
@@ -212,45 +305,84 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
                 borderRadius: "0.5rem",
                 boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
                 textAlign: "left",
-                maxHeight: "15rem",
+                maxHeight: "20rem",
                 overflowY: "auto",
                 backdropFilter: "blur(24px)",
                 padding: 0,
                 listStyle: "none",
               }}
             >
-              {suggestions.map((s) => (
-                <li key={s.id} style={{ borderBottom: "1px solid #1f2937" }}>
-                  <button
-                    type="button"
-                    onClick={() => handleSelect(s)}
-                    className="hud-suggestion-btn"
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem 1rem",
-                      textAlign: "left",
-                      color: "#e5e7eb",
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      transition: "colors 0.2s",
-                    }}
-                  >
-                    <span style={{ display: "block", fontWeight: "bold" }}>
-                      {s.text}
-                    </span>
-                    <span style={{ fontSize: "0.875rem", opacity: 0.75 }}>
-                      {s.place_name}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {suggestions.map((s) => {
+                // Check if it is a brand or poi for the icon
+                const isPoi = s.place_type?.some(
+                  (t) => t === "brand" || t === "poi"
+                );
+
+                return (
+                  <li key={s.id} style={{ borderBottom: "1px solid #1f2937" }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(s)}
+                      className="hud-suggestion-btn"
+                      style={{
+                        width: "100%",
+                        padding: "0.75rem 1rem",
+                        textAlign: "left",
+                        color: "#e5e7eb",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        transition: "colors 0.2s",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "1rem",
+                      }}
+                    >
+                      {/* Icon */}
+                      <div style={{ flexShrink: 0 }}>
+                        {isPoi ? <StoreIcon /> : <PinIcon />}
+                      </div>
+
+                      {/* Text */}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: "block",
+                            fontWeight: "bold",
+                            fontSize: "1.1rem",
+                            color: isPoi ? "var(--hud-color)" : "white",
+                          }}
+                        >
+                          {s.text}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "0.875rem",
+                            opacity: 0.75,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {s.place_name}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
 
           <button
             type="submit"
-            disabled={isLoading || !searchTerm.trim()}
+            disabled={isLoading || isFetching || !searchTerm.trim()}
             className="hud-button"
             style={{
               width: "100%",
@@ -262,13 +394,19 @@ export const DestinationForm: React.FC<DestinationFormProps> = ({
               borderRadius: "0.75rem",
               border: "none",
               cursor:
-                isLoading || !searchTerm.trim() ? "not-allowed" : "pointer",
+                isLoading || isFetching || !searchTerm.trim()
+                  ? "not-allowed"
+                  : "pointer",
               transition: "all 0.2s",
               boxShadow: "0 0 20px rgba(6, 182, 212, 0.4)",
-              opacity: isLoading || !searchTerm.trim() ? 0.5 : 1,
+              opacity: isLoading || isFetching || !searchTerm.trim() ? 0.5 : 1,
             }}
           >
-            {isLoading ? "Calculating..." : "Start Drive"}
+            {isFetching
+              ? "Getting Location..."
+              : isLoading
+              ? "Calculating..."
+              : "Start Drive"}
           </button>
 
           {error && (
